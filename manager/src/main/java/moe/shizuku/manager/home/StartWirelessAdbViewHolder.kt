@@ -26,6 +26,7 @@ import moe.shizuku.manager.adb.AdbStarter
 import moe.shizuku.manager.databinding.HomeItemContainerBinding
 import moe.shizuku.manager.databinding.HomeStartWirelessAdbBinding
 import moe.shizuku.manager.home.showAccessibilityDialog
+import moe.shizuku.manager.home.startPairingAutopilot
 import moe.shizuku.manager.ktx.toHtml
 import moe.shizuku.manager.receiver.NotifCancelReceiver
 import moe.shizuku.manager.starter.StarterActivity
@@ -64,13 +65,18 @@ class StartWirelessAdbViewHolder(binding: HomeStartWirelessAdbBinding, root: Vie
             }
         
             val adbEnabled = Settings.Global.getInt(cr, Settings.Global.ADB_ENABLED, 0)
-            if (adbEnabled == 0) {
-                WadbEnableUsbDebuggingDialogFragment().show(context.asActivity<FragmentActivity>().supportFragmentManager)
-                return
-            }
 
             val tcpPort = EnvironmentUtils.getAdbTcpPort()
             val tcpMode = ShizukuSettings.getTcpMode()
+
+            // USB debugging doesn't need to be on to connect over wireless debugging; AdbStarter
+            // turns it on over the shell before launching the server. Only block when no path
+            // reaches AdbStarter (no TLS wireless debugging and no open TCP port), where the user
+            // has to enable it once themselves.
+            if (adbEnabled == 0 && tcpPort <= 0 && !EnvironmentUtils.isTlsSupported()) {
+                WadbEnableUsbDebuggingDialogFragment().show(context.asActivity<FragmentActivity>().supportFragmentManager)
+                return
+            }
 
             // If ADB is NOT listening to a TCP port and the device doesn't support TLS, inform the user
             if (tcpPort <= 0 && !EnvironmentUtils.isTlsSupported()) {
@@ -106,6 +112,11 @@ class StartWirelessAdbViewHolder(binding: HomeStartWirelessAdbBinding, root: Vie
             binding.button2.setOnClickListener { v: View ->
                 onPairClicked(v.context)
             }
+            // Experimental: drives the whole Settings pairing flow via an accessibility
+            // service instead of walking the user through it manually.
+            binding.buttonAutopilot.setOnClickListener { v: View ->
+                v.context.startPairingAutopilot()
+            }
             binding.text1.movementMethod = LinkMovementMethod.getInstance()
             binding.text1.text = context.getString(R.string.home_wireless_adb_description)
                 .toHtml(HtmlCompat.FROM_HTML_OPTION_TRIM_WHITESPACE)
@@ -114,6 +125,7 @@ class StartWirelessAdbViewHolder(binding: HomeStartWirelessAdbBinding, root: Vie
                 .toHtml(HtmlCompat.FROM_HTML_OPTION_TRIM_WHITESPACE)
             binding.button2.isVisible = false
             binding.button3.isVisible = false
+            binding.buttonAutopilot.isVisible = false
         }
     }
 

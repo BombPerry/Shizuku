@@ -26,6 +26,9 @@ private const val TAG = "ApkUtils"
 
 const val ORIGINAL_PACKAGE_NAME = "moe.shizuku.privileged.api"
 
+// Android 15+ refuses PackageInstaller installs targeting below this (Android 7.0).
+private const val MIN_INSTALLABLE_TARGET_SDK = Build.VERSION_CODES.N
+
 private val app = ShizukuApplication.application
 private val appContext = ShizukuApplication.appContext
 
@@ -44,6 +47,13 @@ fun File.changePackageName(newPkgName: String, maybeCreateSigningKey: Boolean = 
     Log.i(TAG, "Changing package name")
     val oldPkgName = manifest.packageName
     manifest.packageName = newPkgName
+
+    // This build may target a legacy SDK (see shizuku.manager.targetSdk). Copies installed
+    // through PackageInstaller can't use adb's --bypass-low-target-sdk-block, so lift them to the
+    // lowest target the platform still installs normally.
+    if (app.applicationInfo.targetSdkVersion < MIN_INSTALLABLE_TARGET_SDK) {
+        manifest.setTargetSdkVersion(MIN_INSTALLABLE_TARGET_SDK)
+    }
 
     Log.i(TAG, "Updating provider authorities")
     val providers =
@@ -103,7 +113,7 @@ fun createStubApk(pkgName: String): File {
         setVersionName("1.0.0")
         setApplicationLabel(appName.getResourceId())
         setIconResourceId(appIcon.getResourceId())
-        setTargetSdkVersion(app.applicationInfo.targetSdkVersion)
+        setTargetSdkVersion(maxOf(app.applicationInfo.targetSdkVersion, MIN_INSTALLABLE_TARGET_SDK))
         setMinSdkVersion(app.applicationInfo.minSdkVersion)
     }
 

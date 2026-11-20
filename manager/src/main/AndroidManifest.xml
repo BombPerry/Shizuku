@@ -190,6 +190,22 @@
                 android:resource="@xml/accessibility_service_config" />
         </service>
 
+        <!-- Experimental one-tap pairing autopilot, phone/tablet only. Separate from
+             AdbPairingAccessibilityService above, which is TV-only and scoped to
+             com.android.tv.settings — the two never compete for the same screen. -->
+        <service
+            android:name=".adb.PairingAutopilotService"
+            android:label="@string/autopilot_title"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_autopilot" />
+        </service>
+
         <service
             android:name=".service.WatchdogService"
             android:exported="false"
@@ -223,6 +239,38 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
+
+        <!-- ===== Pre-unlock (Direct Boot) start experiment =====
+             LockedBootReceiver is directBootAware and listens for BOTH
+             LOCKED_BOOT_COMPLETED (pre-unlock) and BOOT_COMPLETED (post-unlock
+             fallback). It logs every delivery to a device-encrypted log file
+             (files/directboot_log.txt) so the actual pre-unlock behaviour is
+             observable. On an Asus ROG Phone 7 testing showed adbd does NOT
+             bring up any network (TLS or TCP) listener before first unlock, so
+             the server cannot actually start pre-unlock on that device; these
+             components remain as the instrumented harness that established this. -->
+        <receiver
+            android:name=".receiver.LockedBootReceiver"
+            android:directBootAware="true"
+            android:enabled="true"
+            android:exported="true"
+            tools:ignore="ExportedReceiver">
+            <intent-filter>
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+        <service
+            android:name=".service.DirectBootStartService"
+            android:directBootAware="true"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Starts the privileged ADB server at device boot before unlock so dependent apps have the API available immediately." />
+        </service>
 
         <receiver
             android:name=".receiver.ManualStartReceiver"

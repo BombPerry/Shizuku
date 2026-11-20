@@ -62,7 +62,11 @@ object AdbStarter {
                 AdbClient("127.0.0.1", activePort, key).use { client ->
                     connectWithRetry(client)
                     log?.invoke("Successfully connected on port $activePort...\n")
-                    client.runCommand("shell:${Starter.internalCommand}")
+                    // Enable USB debugging in the same shell that starts the server. This runs
+                    // as the shell UID, which holds WRITE_SECURE_SETTINGS, so it works on a fresh
+                    // install where the app itself can't write adb_enabled. Chained with ';' so a
+                    // restrictive OEM refusing the write still lets the starter run.
+                    client.runCommand("shell:settings put global adb_enabled 1 ; ${Starter.internalCommand}")
                 }
             }
         } finally {
