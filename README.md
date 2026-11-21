@@ -2,7 +2,7 @@
    
 # Shizuku
 
-What this adds compared to thedjchi's version:
+What this adds compared to thedjchi's 13.7.0 version:
 
 moved the app from credential encrypted storage to device encrypted storage.
 This allows the app to start pre-unlock after a reboot and start the server quicker
