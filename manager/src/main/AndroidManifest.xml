@@ -231,30 +231,15 @@
             </intent-filter>
         </receiver>
 
+        <!-- Single boot entry point. directBootAware so it also receives LOCKED_BOOT_COMPLETED
+             before first unlock; BOOT_COMPLETED after unlock confirms or retries.
+             enabled="false" by default: the "Start on boot" setting toggles this component
+             (ShizukuSettings.setStartOnBoot). Both broadcasts hand off to DirectBootStartService. -->
         <receiver
             android:name=".receiver.BootCompleteReceiver"
+            android:directBootAware="true"
             android:enabled="false"
             android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
-            </intent-filter>
-        </receiver>
-
-        <!-- ===== Pre-unlock (Direct Boot) start experiment =====
-             LockedBootReceiver is directBootAware and listens for BOTH
-             LOCKED_BOOT_COMPLETED (pre-unlock) and BOOT_COMPLETED (post-unlock
-             fallback). It logs every delivery to a device-encrypted log file
-             (files/directboot_log.txt) so the actual pre-unlock behaviour is
-             observable. On an Asus ROG Phone 7 testing showed adbd does NOT
-             bring up any network (TLS or TCP) listener before first unlock, so
-             the server cannot actually start pre-unlock on that device; these
-             components remain as the instrumented harness that established this. -->
-        <receiver
-            android:name=".receiver.LockedBootReceiver"
-            android:directBootAware="true"
-            android:enabled="true"
-            android:exported="true"
-            tools:ignore="ExportedReceiver">
             <intent-filter>
                 <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
@@ -269,7 +254,7 @@
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Starts the privileged ADB server at device boot before unlock so dependent apps have the API available immediately." />
+                android:value="Starts the Shizuku server at device boot, before unlock where possible, so dependent apps have the API available immediately." />
         </service>
 
         <receiver
