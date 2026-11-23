@@ -27,9 +27,10 @@ subprojects { subproject ->
 }
 
 def gitCommitCount = Integer.parseInt("git rev-list --count HEAD".execute([], project.rootDir).text.trim())
-def baseVersionName = "13.7.0"
+def baseVersionName = "13.7.0-bombperry"
+def forkRelease = "v3"
 def isBeta = project.hasProperty("beta")
 ext {
     versionCode = gitCommitCount
-    versionName = "${baseVersionName}${if (isBeta) "-beta" else ""}-thedjchi"
+    versionName = "${baseVersionName}_${forkRelease}${if (isBeta) "-beta" else ""}"
 }

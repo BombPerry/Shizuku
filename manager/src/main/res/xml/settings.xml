@@ -111,6 +111,16 @@
             android:summary="@string/settings_legacy_pairing_summary"
             android:title="@string/settings_legacy_pairing" />
 
+        <Preference
+            android:key="adb_port_range"
+            android:persistent="false"
+            android:title="@string/settings_adb_port_range" />
+
+        <SwitchPreferenceCompat
+            android:key="adb_port_odd_only"
+            android:persistent="false"
+            android:title="@string/settings_adb_port_odd_only" />
+
     </PreferenceCategory>
 
 </PreferenceScreen>

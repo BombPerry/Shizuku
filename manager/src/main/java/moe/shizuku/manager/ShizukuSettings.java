@@ -40,6 +40,8 @@ public class ShizukuSettings {
         public static final String KEY_HELP = "help";
         public static final String KEY_REPORT_BUG = "report_bug";
         public static final String KEY_LEGACY_PAIRING = "legacy_pairing";
+        public static final String KEY_ADB_PORT_RANGE = "adb_port_range";
+        public static final String KEY_ADB_PORT_ODD_ONLY = "adb_port_odd_only";
         public static final String KEY_CATEGORY_ADVANCED = "category_advanced";
     }
 

@@ -30,16 +30,23 @@ import androidx.preference.Preference.SummaryProvider
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.snackbar.Snackbar
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.CancellableContinuation
 import moe.shizuku.manager.R
 import moe.shizuku.manager.ShizukuSettings
 import moe.shizuku.manager.ShizukuSettings.Keys.*
+import moe.shizuku.manager.adb.AdbPortHistory
+import moe.shizuku.manager.adb.AdbPortRange
 import moe.shizuku.manager.adb.AdbStarter
 import moe.shizuku.manager.app.SnackbarHelper
 import moe.shizuku.manager.app.ThemeHelper
@@ -53,6 +60,7 @@ import moe.shizuku.manager.utils.CustomTabsHelper
 import moe.shizuku.manager.utils.EnvironmentUtils
 import moe.shizuku.manager.utils.SettingsHelper
 import moe.shizuku.manager.utils.ShizukuStateMachine
+import moe.shizuku.manager.utils.UpdateHelper
 import rikka.core.util.ResourceUtils
 import rikka.html.text.HtmlCompat
 import rikka.material.app.LocaleDelegate
@@ -61,6 +69,7 @@ import rikka.recyclerview.addItemSpacing
 import rikka.recyclerview.fixEdgeEffect
 import rikka.shizuku.manager.ShizukuLocales
 import java.util.*
+import java.util.concurrent.atomic.AtomicInteger
 
 class SettingsFragment : PreferenceFragmentCompat(), SharedPreferences.OnSharedPreferenceChangeListener {
 
@@ -78,6 +87,8 @@ class SettingsFragment : PreferenceFragmentCompat(), SharedPreferences.OnSharedP
     private lateinit var helpPreference: Preference
     private lateinit var reportBugPreference: Preference
     private lateinit var legacyPairingPreference: TwoStatePreference
+    private lateinit var adbPortRangePreference: Preference
+    private lateinit var adbPortOddOnlyPreference: TwoStatePreference
     private lateinit var advancedCategory: PreferenceCategory
 
     private lateinit var batteryOptimizationListener: ActivityResultLauncher<Intent>
@@ -112,6 +123,8 @@ class SettingsFragment : PreferenceFragmentCompat(), SharedPreferences.OnSharedP
         helpPreference = findPreference(KEY_HELP)!!
         reportBugPreference = findPreference(KEY_REPORT_BUG)!!
         legacyPairingPreference = findPreference(KEY_LEGACY_PAIRING)!!
+        adbPortRangePreference = findPreference(KEY_ADB_PORT_RANGE)!!
+        adbPortOddOnlyPreference = findPreference(KEY_ADB_PORT_ODD_ONLY)!!
         advancedCategory = findPreference(KEY_CATEGORY_ADVANCED)!!
 
         batteryOptimizationListener = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
@@ -305,9 +318,10 @@ class SettingsFragment : PreferenceFragmentCompat(), SharedPreferences.OnSharedP
         }
 
         updateModePreference.value = ShizukuSettings.getUpdateMode()
+        updateModePreference.isVisible = UpdateHelper.FEATURE_ENABLED
 
         helpPreference.setOnPreferenceClickListener {
-            CustomTabsHelper.launchUrlOrCopy(context, context.getString(R.string.help_url))
+            showHelpDialog()
             true
         }
 
@@ -320,7 +334,127 @@ class SettingsFragment : PreferenceFragmentCompat(), SharedPreferences.OnSharedP
             isVisible = !EnvironmentUtils.isTelevision()
         }
 
-        advancedCategory.isVisible = legacyPairingPreference.isVisible
+        adbPortRangePreference.apply {
+            // Only wireless debugging (Android 11+, not TV) uses a random port.
+            isVisible = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !EnvironmentUtils.isTelevision()
+            summary = adbPortRangeSummary(context)
+            setOnPreferenceClickListener {
+                measureAdbPortRange()
+                true
+            }
+        }
+
+        adbPortOddOnlyPreference.apply {
+            isVisible = adbPortRangePreference.isVisible
+            setOnPreferenceChangeListener { _, newValue ->
+                AdbPortRange.setOddOnlyScan(context, newValue as Boolean)
+                true
+            }
+        }
+        refreshOddOnlyPreference(context)
+
+        advancedCategory.isVisible = legacyPairingPreference.isVisible || adbPortRangePreference.isVisible
+    }
+
+    /** Help: email, this fork's GitHub repository and thedjchi's wiki. */
+    private fun showHelpDialog() {
+        val context = requireContext()
+        val email = getString(R.string.support_email)
+        val items = arrayOf(
+            getString(R.string.help_dialog_email, email),
+            getString(R.string.help_dialog_github),
+            getString(R.string.help_dialog_wiki),
+        )
+        MaterialAlertDialogBuilder(context)
+            .setTitle(R.string.settings_help)
+            .setItems(items) { _, which ->
+                when (which) {
+                    0 -> try {
+                        startActivity(Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:$email")))
+                    } catch (e: ActivityNotFoundException) {
+                        Toast.makeText(context, R.string.toast_no_email_app, Toast.LENGTH_SHORT).show()
+                    }
+                    1 -> CustomTabsHelper.launchUrlOrCopy(context, getString(R.string.repo_url))
+                    2 -> CustomTabsHelper.launchUrlOrCopy(context, getString(R.string.help_url))
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun adbPortRangeSummary(context: Context): String {
+        val c = AdbPortRange.load(context) ?: return context.getString(R.string.settings_adb_port_range_none)
+        return context.getString(R.string.settings_adb_port_range_summary, c.listenLow, c.listenHigh)
+    }
+
+    private fun oddSharePercent(c: AdbPortRange.Calibration): String =
+        String.format(Locale.ROOT, "%.2f%%", c.oddShare * 100)
+
+    /** Shows the saved switch state and what the last measurement detected. */
+    private fun refreshOddOnlyPreference(context: Context) {
+        val c = AdbPortRange.load(context)
+        adbPortOddOnlyPreference.isChecked = AdbPortRange.isOddOnlyScan(context)
+        adbPortOddOnlyPreference.summary =
+            if (c == null) context.getString(R.string.settings_adb_port_odd_only_unknown)
+            else context.getString(R.string.settings_adb_port_odd_only_detected, oddSharePercent(c))
+    }
+
+    /** Samples the kernel's port choice, saves the range for the boot start and shows it. */
+    private fun measureAdbPortRange() {
+        val context = requireContext().applicationContext
+        adbPortRangePreference.isEnabled = false
+        adbPortOddOnlyPreference.isEnabled = false
+        val progress = AtomicInteger(0)
+        lifecycleScope.launch {
+            // Leaving the screen cancels this coroutine, which stops the measurement too.
+            val job = async(Dispatchers.IO) {
+                runCatching {
+                    AdbPortRange.measure(onProgress = { progress.set(it) }, shouldStop = { !isActive })
+                }
+            }
+            while (job.isActive) {
+                adbPortRangePreference.summary = getString(R.string.settings_adb_port_range_measuring, progress.get())
+                delay(250)
+            }
+            val result = job.await()
+            result.onSuccess { AdbPortRange.save(context, it) }
+            adbPortRangePreference.isEnabled = true
+            adbPortOddOnlyPreference.isEnabled = true
+            adbPortRangePreference.summary = adbPortRangeSummary(context)
+            refreshOddOnlyPreference(context)
+            val dialogContext = this@SettingsFragment.context ?: return@launch
+
+            result.onSuccess { c ->
+                val history = AdbPortHistory.load(context)
+                val comparison = if (history.isEmpty()) {
+                    getString(R.string.settings_adb_port_range_no_history)
+                } else {
+                    getString(R.string.settings_adb_port_range_history, AdbPortRange.countInside(c, history), history.size)
+                }
+                MaterialAlertDialogBuilder(dialogContext)
+                    .setTitle(R.string.settings_adb_port_range)
+                    .setMessage(
+                        getString(
+                            R.string.settings_adb_port_range_result,
+                            c.listenLow, c.listenHigh, oddSharePercent(c),
+                            c.fullLow, c.fullHigh, String.format(Locale.ROOT, "%,d", c.samples), comparison,
+                        )
+                    )
+                    .setPositiveButton(android.R.string.ok, null)
+                    .setNeutralButton(R.string.settings_adb_port_range_clear) { _, _ ->
+                        AdbPortRange.clear(context)
+                        adbPortRangePreference.summary = adbPortRangeSummary(context)
+                        refreshOddOnlyPreference(context)
+                    }
+                    .show()
+            }.onFailure { e ->
+                MaterialAlertDialogBuilder(dialogContext)
+                    .setTitle(R.string.settings_adb_port_range)
+                    .setMessage(getString(R.string.settings_adb_port_range_failed, e.toString()))
+                    .setPositiveButton(android.R.string.ok, null)
+                    .show()
+            }
+        }
     }
 
     override fun onResume() {

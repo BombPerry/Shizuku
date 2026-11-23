@@ -27,7 +27,9 @@ import moe.shizuku.manager.databinding.HomeActivityBinding
 import moe.shizuku.manager.home.showAccessibilityDialog
 import moe.shizuku.manager.ktx.toHtml
 import moe.shizuku.manager.management.AppsViewModel
+import moe.shizuku.manager.settings.BootLogActivity
 import moe.shizuku.manager.settings.SettingsActivity
+import androidx.core.view.isVisible
 import moe.shizuku.manager.utils.AppIconCache
 import moe.shizuku.manager.utils.CustomTabsHelper
 import moe.shizuku.manager.utils.EnvironmentUtils
@@ -199,7 +201,7 @@ abstract class HomeActivity : AppBarActivity() {
                 binding.sourceCode.movementMethod = LinkMovementMethod.getInstance()
                 binding.sourceCode.text = getString(
                     R.string.about_view_source_code,
-                    "<b><a href=\"https://github.com/thedjchi/Shizuku\">GitHub</a></b>"
+                    "<b><a href=\"${getString(R.string.repo_url)}\">GitHub</a></b>"
                 ).toHtml()
                 binding.icon.setImageBitmap(
                     AppIconCache.getOrLoadBitmap(
@@ -211,14 +213,12 @@ abstract class HomeActivity : AppBarActivity() {
                 )
                 binding.versionName.text = packageManager.getPackageInfo(packageName, 0).versionName
 
+                // The update check is disabled for now (UpdateHelper.FEATURE_ENABLED).
+                binding.btnUpdate.isVisible = UpdateHelper.FEATURE_ENABLED
                 binding.btnUpdate.setOnClickListener {
                     lifecycleScope.launch {
                         UpdateHelper.checkAndInstallUpdates()
                     }
-                }
-
-                binding.btnDonate.setOnClickListener {
-                    CustomTabsHelper.launchUrlOrCopy(this, "https://www.buymeacoffee.com/thedjchi")
                 }
 
                 val dialog = MaterialAlertDialogBuilder(this)
@@ -243,6 +243,10 @@ abstract class HomeActivity : AppBarActivity() {
                         .setNegativeButton(android.R.string.cancel, null)
                         .show()
                 }
+                true
+            }
+            R.id.action_boot_log -> {
+                startActivity(Intent(this, BootLogActivity::class.java))
                 true
             }
             R.id.action_settings -> {

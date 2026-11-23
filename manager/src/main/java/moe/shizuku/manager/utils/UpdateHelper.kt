@@ -93,7 +93,15 @@ object UpdateHelper {
         }
     }
 
-    fun isCheckForUpdatesEnabled(): Boolean = ShizukuSettings.getUpdateMode() != ShizukuSettings.UpdateMode.OFF
+    /**
+     * The update check is switched off for now: it still reads thedjchi's releases, and the
+     * version check doesn't understand this fork's tags (13.7.0_v2 and 13.7.0_v3 parse as the
+     * same version). Set to true once fetchLatestRelease() and Version.parse() are adapted.
+     */
+    const val FEATURE_ENABLED = false
+
+    fun isCheckForUpdatesEnabled(): Boolean =
+        FEATURE_ENABLED && ShizukuSettings.getUpdateMode() != ShizukuSettings.UpdateMode.OFF
 
     suspend fun isNewUpdateAvailable(): Boolean {
         val lastPromptedVersion =

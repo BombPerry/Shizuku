@@ -213,10 +213,25 @@
     <string name="settings_update_stable">Stable</string>
     <string name="settings_update_beta">Beta</string>
     <string name="settings_help">Help</string>
+    <string name="help_dialog_email">Email: %1$s</string>
+    <string name="help_dialog_github">GitHub repository</string>
+    <string name="help_dialog_wiki">Wiki (thedjchi)</string>
     <string name="settings_report_bug">Report a bug</string>
     <string name="settings_advanced">Advanced</string>
     <string name="settings_legacy_pairing">Legacy pairing</string>
     <string name="settings_legacy_pairing_summary">Enter the pairing code in a dialog instead of a notification</string>
+    <string name="settings_adb_port_range">Wireless debugging port range</string>
+    <string name="settings_adb_port_range_none">Not measured. Tap to measure which ports wireless debugging can get (1,000,000 samples, up to about a minute), so the boot start finds its port faster</string>
+    <string name="settings_adb_port_range_summary">Ports %1$d–%2$d, scanned first at boot. Tap to measure again</string>
+    <string name="settings_adb_port_range_measuring">Measuring… %1$d%%</string>
+    <string name="settings_adb_port_range_result">Wireless debugging ports: %1$d–%2$d\nOdd ports: %3$s\nWhole port range: %4$d–%5$d\nSamples: %6$s per measurement, no margin added\n\n%7$s\n\nThe boot start scans this range first.</string>
+    <string name="settings_adb_port_range_history">%1$d of %2$d ports found at earlier boots lie in this range.</string>
+    <string name="settings_adb_port_range_no_history">No wireless debugging port has been found at boot yet to compare with.</string>
+    <string name="settings_adb_port_range_failed">Measuring failed: %1$s</string>
+    <string name="settings_adb_port_range_clear">Clear</string>
+    <string name="settings_adb_port_odd_only">Scan odd ports only</string>
+    <string name="settings_adb_port_odd_only_detected">Detected: %1$s of the measured ports were odd. Skipping even ports halves the scan; mDNS still finds an even port</string>
+    <string name="settings_adb_port_odd_only_unknown">Not detected yet: measure the port range first. Skipping even ports halves the scan; mDNS still finds an even port</string>
 
     <!-- Bug Report Dialog -->
     <string name="bug_report_dialog_before_reporting">First, please do the following:</string>
@@ -263,6 +278,15 @@
     <string name="action_about">About</string>
     <string name="about_dialog_button_close">Close</string>
     <string name="about_view_source_code"><![CDATA[View source code at %s]]></string>
+
+    <!-- Boot log -->
+    <string name="boot_log_title">Boot log</string>
+    <string name="boot_log_empty">No boot log yet. It is written at every boot.</string>
+    <string name="boot_log_share">Share</string>
+    <string name="boot_log_copy">Copy</string>
+    <string name="boot_log_clear">Clear log</string>
+    <string name="boot_log_clear_message">Delete the boot log?</string>
+    <string name="boot_log_copied">Copied (addresses and serial number masked)</string>
     <string name="buy_me_a_coffee">Buy me a coffee</string>
 
     <!-- Start/Stop -->

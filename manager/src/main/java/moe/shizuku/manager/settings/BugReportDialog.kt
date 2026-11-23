@@ -28,18 +28,16 @@ class BugReportDialog : DialogFragment() {
         val context = requireContext()
         binding = BugReportDialogBinding.inflate(layoutInflater)
 
-        val updateLink = getString(R.string.bug_report_dialog_link_update)
-            .asLink("https://github.com/thedjchi/Shizuku/releases/latest")
+        val repoUrl = getString(R.string.repo_url)
 
-        val wikiLink = getString(R.string.bug_report_dialog_link_wiki)
-            .asLink("https://github.com/thedjchi/Shizuku/releases/wiki#troubleshooting")
+        val updateLink = getString(R.string.bug_report_dialog_link_update)
+            .asLink("$repoUrl/releases/latest")
 
         val issuesLink = getString(R.string.bug_report_dialog_link_issues)
-            .asLink("https://github.com/thedjchi/Shizuku/releases/issues")
+            .asLink("$repoUrl/issues")
 
         binding.apply {
             updateText.applyTemplateArgs(updateLink)
-            wikiText.applyTemplateArgs(wikiLink)
             issuesText.applyTemplateArgs(issuesLink)
             methodText.applyTemplateArgs("GitHub")
         }
@@ -48,7 +46,7 @@ class BugReportDialog : DialogFragment() {
             .setTitle(R.string.settings_report_bug)
             .setView(binding.root)
             .setPositiveButton("GitHub") { _, _ ->
-                CustomTabsHelper.launchUrlOrCopy(context, "https://github.com/thedjchi/Shizuku/issues/new")
+                CustomTabsHelper.launchUrlOrCopy(context, "$repoUrl/issues/new")
             }
             .setNegativeButton(R.string.bug_report_dialog_button_email) { _, _ ->
                 val plainBody = """

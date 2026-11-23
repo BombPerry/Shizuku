@@ -109,21 +109,25 @@ object AdbStarter {
         }
     }
 
+    // Retry every 250 ms for up to 10 s. After "tcpip:<port>" adbd restarts and is usually
+    // reachable well under a second later; the old 1 s first pause made every TCP-mode start
+    // take at least 1 s longer than needed. The total patience (10 s) is the same as before.
+    private const val CONNECT_RETRY_INTERVAL_MS = 250L
+    private const val CONNECT_RETRY_BUDGET_MS = 10_000L
+
     private suspend fun connectWithRetry(client: AdbClient) {
-        var delayTime = 0L
-        val maxAttempts = 5
-        for (attempt in 1..maxAttempts) {
+        val deadline = android.os.SystemClock.elapsedRealtime() + CONNECT_RETRY_BUDGET_MS
+        while (true) {
             try {
-                delay(delayTime)
                 client.connect()
-                break
+                return
             } catch (e: Exception) {
                 if (
-                    attempt == maxAttempts ||
                     e is CancellationException ||
-                    e is SocketTimeoutException
+                    e is SocketTimeoutException ||
+                    android.os.SystemClock.elapsedRealtime() >= deadline
                 ) throw e
-                delayTime += 1000
+                delay(CONNECT_RETRY_INTERVAL_MS)
             }
         }
     }

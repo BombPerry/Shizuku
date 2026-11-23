@@ -15,12 +15,6 @@ android {
     namespace = "moe.shizuku.manager"
     defaultConfig {
         applicationId = "moe.shizuku.privileged.api"
-        // Legacy target SDK (default 21 / Android 5.0) on top of the modern compileSdk from the
-        // root build.gradle, so the app is compiled against current APIs but the platform applies
-        // pre-Marshmallow behaviour to it (install-time permissions, no background-start or
-        // implicit-broadcast restrictions). Change it in gradle.properties
-        // (shizuku.manager.targetSdk) — 24 is the lowest that Android 15+ installs without
-        // `adb install --bypass-low-target-sdk-block`.
         targetSdk = (project.findProperty("shizuku.manager.targetSdk") ?: "21").toString().toInteger()
         versionCode = rootProject.ext.versionCode
         versionName = rootProject.ext.versionName
