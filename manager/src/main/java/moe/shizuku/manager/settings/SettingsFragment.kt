@@ -413,7 +413,10 @@ class SettingsFragment : PreferenceFragmentCompat(), SharedPreferences.OnSharedP
                 }
             }
             while (job.isActive) {
-                adbPortRangePreference.summary = getString(R.string.settings_adb_port_range_measuring, progress.get())
+                adbPortRangePreference.summary = getString(
+                    R.string.settings_adb_port_range_measuring,
+                    String.format(Locale.ROOT, "%,d", progress.get()),
+                )
                 delay(250)
             }
             val result = job.await()
@@ -437,7 +440,15 @@ class SettingsFragment : PreferenceFragmentCompat(), SharedPreferences.OnSharedP
                         getString(
                             R.string.settings_adb_port_range_result,
                             c.listenLow, c.listenHigh, oddSharePercent(c),
-                            c.fullLow, c.fullHigh, String.format(Locale.ROOT, "%,d", c.samples), comparison,
+                            c.fullLow, c.fullHigh,
+                            getString(
+                                when (c.source) {
+                                    AdbPortRange.Source.FILE -> R.string.settings_adb_port_range_source_file
+                                    AdbPortRange.Source.SYSCTL -> R.string.settings_adb_port_range_source_sysctl
+                                    AdbPortRange.Source.SAMPLING -> R.string.settings_adb_port_range_source_sampling
+                                }
+                            ),
+                            String.format(Locale.ROOT, "%,d", c.samples), comparison,
                         )
                     )
                     .setPositiveButton(android.R.string.ok, null)

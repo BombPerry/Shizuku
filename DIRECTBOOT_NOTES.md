@@ -59,15 +59,23 @@ found at earlier boots (`AdbPortHistory`, last 10, device-encrypted), then the d
 lower half (32769-46883), then all other ports. Every port is still scanned; only the order
 changes.
 
-**Settings → Advanced → Wireless debugging port range** (`AdbPortRange`) binds port 0
-1,000,000 times with `SO_REUSEADDR` (the band adbd's port comes from) and 1,000,000 times
-without it (the whole range), without Wi-Fi, with a progress display. With that many samples
-every port of the band is hit hundreds of times, so the lowest and highest sample are the real
-bounds and no margin is added (on a desktop Linux 6.18 kernel: exactly 32769-46883, the
-theoretical lower half, in 5 s). The result is saved and shown. This matters on devices whose
-manufacturer changed the range and where `/proc/sys/net/ipv4/ip_local_port_range` can't be
-read: on the Asus ROG Phone 7 the range is about 37000-51000 and wireless debugging ports were
-always odd and within 37000-44000.
+**Settings → Advanced → Wireless debugging port range** (`AdbPortRange`) finds the band:
+
+1. It reads `ip_local_port_range`: from `/proc/sys` if the app may, otherwise with
+   `sysctl net.ipv4.ip_local_port_range` through the running Shizuku server (adb shell or
+   root). On the Asus ROG Phone 7, `cat` of the file is denied even from adb shell, but
+   `sysctl` works: `37000 50000`. The band is then computed with the kernel's formula
+   (`high++; half = low + (((high - low) >> 2) << 1)`, ports `low..half-1`, here
+   37000-43499), and 20,000 binds check that every port really falls inside it.
+2. If the range can't be read (Shizuku not running), it samples: bind port 0 with
+   `SO_REUSEADDR` (the band) and without it (the whole range) until the lowest and highest
+   port haven't changed for 50,000 binds, or 20 binds per candidate port on wider ranges,
+   at most 1,000,000 per round. On a desktop Linux 6.18 kernel with the default range this
+   stopped after about 140,000 and 290,000 binds, with the exact bounds, in under 1.5 s.
+
+The result is saved and shown, with where the range came from. It matters on devices whose
+manufacturer changed the range: on the ROG Phone 7 wireless debugging ports were always
+odd and within 37000-44000.
 
 **Scan odd ports only** (switch below it): a measurement shows the share of odd ports and sets
 the switch accordingly (on at 99.9%+, as on Linux 4.6+); it can be changed by hand. When on,

@@ -1,28 +1,33 @@
 package moe.shizuku.manager.adb
 
 import android.content.Context
+import android.os.ParcelFileDescriptor
 import android.system.ErrnoException
 import android.system.Os
 import android.system.OsConstants
+import moe.shizuku.server.IShizukuService
+import rikka.shizuku.Shizuku
+import java.io.File
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.util.concurrent.CancellationException
 
 /**
- * Measures which ports the kernel hands out to listening sockets on this device, so the boot
- * start can scan the wireless-debugging port range first ([AdbPortScanner.buildOrder]).
+ * Finds out which ports adbd's wireless-debugging server can get on this device, so the boot
+ * start can scan that band first ([AdbPortScanner.buildOrder]).
  *
- * adbd's TLS server binds port 0 with SO_REUSEADDR and lets the kernel choose. This does the
- * same thing [SAMPLES] times (bind, read the port, close), which needs neither Wi-Fi nor
- * wireless debugging:
+ * adbd binds port 0 with SO_REUSEADDR and lets the kernel choose. The kernel then takes a port
+ * from the lower half of ip_local_port_range, with the opposite parity of its lowest port, so
+ * odd ports for the usual even lower bound (inet_csk_find_open_port, Linux 4.6+).
  *
- *  - with SO_REUSEADDR: the kernel tries the lower half of ip_local_port_range, odd ports only
- *    (inet_csk_find_open_port, Linux 4.6+). This is the band adbd's port comes from.
- *  - without SO_REUSEADDR: odd ports from the whole range, which shows the range itself. On some
- *    devices /proc/sys/net/ipv4/ip_local_port_range can't be read, even from adb shell.
- *
- * With a million samples every port of the band is hit hundreds of times, so the lowest and
- * highest sample are the real bounds and no margin is added.
+ * [measure] works in this order:
+ *  1. Read ip_local_port_range: from /proc/sys (often not allowed for apps), otherwise with
+ *     `sysctl` through the running Shizuku server, which runs as the adb shell (or root).
+ *     If that works, the band is computed with the kernel's formula, and a short sample of
+ *     [CHECK_SAMPLES] binds confirms that the kernel really behaves like that.
+ *  2. Otherwise sample: bind port 0 again and again, with SO_REUSEADDR (the band) and without
+ *     it (the whole range), and stop once the lowest and highest port haven't changed for a
+ *     while ([stableWindow]), at most [MAX_SAMPLES] per round.
  *
  * Whether the boot scan skips even ports is a separate switch ([isOddOnlyScan]): a measurement
  * sets it to what it detected, and the user can change it in Settings.
@@ -31,13 +36,17 @@ import java.util.concurrent.CancellationException
  */
 object AdbPortRange {
 
+    /** Where the whole port range came from. */
+    enum class Source { FILE, SYSCTL, SAMPLING }
+
     /**
      * @param listenLow lowest port of the adb band
      * @param listenHigh highest port of the adb band
-     * @param oddShare share of odd ports in the band measurement, 0..1
+     * @param oddShare share of odd ports among the band samples, 0..1
      * @param fullLow lowest port of the whole ephemeral range
      * @param fullHigh highest port of the whole ephemeral range
-     * @param samples samples per measurement
+     * @param samples binds made in total
+     * @param source how the whole range was found
      */
     data class Calibration(
         val listenLow: Int,
@@ -46,15 +55,31 @@ object AdbPortRange {
         val fullLow: Int,
         val fullHigh: Int,
         val samples: Int,
+        val source: Source,
     ) {
-        /** True if the kernel gave (nearly) only odd ports, as Linux 4.6+ does. */
+        /** True if the kernel gave (nearly) only odd ports, as Linux 4.6+ does with an even lower bound. */
         val detectedOddOnly: Boolean get() = oddShare >= ODD_SHARE_MIN
     }
 
-    const val SAMPLES = 1_000_000
+    /** Upper limit per sampling round. */
+    const val MAX_SAMPLES = 1_000_000
+
+    /** A sampling round stops when min and max haven't changed for this many binds, or more for wide ranges. */
+    const val MIN_STABLE_SAMPLES = 50_000
+
+    /**
+     * For wide ranges the window grows to this many times the number of candidate ports, so the
+     * chance of missing the lowest or highest port stays around e^-20 per bound (e^-(window/ports)).
+     */
+    private const val STABLE_PER_PORT = 20
+
+    /** Binds used to check the computed band when the range could be read. */
+    const val CHECK_SAMPLES = 20_000
 
     const val MIN_PORT = 1024
     const val MAX_PORT = 65535
+
+    private const val RANGE_FILE = "/proc/sys/net/ipv4/ip_local_port_range"
 
     private const val PREFS = "adb_port_range"
     private const val KEY_LISTEN_LOW = "listen_low"
@@ -63,58 +88,136 @@ object AdbPortRange {
     private const val KEY_FULL_LOW = "full_low"
     private const val KEY_FULL_HIGH = "full_high"
     private const val KEY_SAMPLES = "samples"
+    private const val KEY_SOURCE = "source"
     private const val KEY_ODD_ONLY_SCAN = "odd_only_scan"
 
     // Share of odd ports needed to treat the band as odd-only (it is 100% on Linux 4.6+).
     private const val ODD_SHARE_MIN = 0.999
 
     /**
-     * Runs both measurements. Blocking (a few seconds up to about a minute, depending on the
-     * device); call it off the main thread.
+     * Blocking; call it off the main thread. Reading the range takes well under a second;
+     * sampling a few seconds, up to about a minute on wide ranges or slow devices.
      *
-     * @param onProgress called with 0..100 as the measurement advances
+     * @param onProgress called with the number of binds made so far
      * @param shouldStop polled regularly; when it returns true, a [CancellationException] is thrown
      */
     fun measure(
-        samples: Int = SAMPLES,
         onProgress: (Int) -> Unit = {},
         shouldStop: () -> Boolean = { false },
     ): Calibration {
-        val band = Sampler(count = samples, reuseAddress = true, progressBase = 0, onProgress = onProgress, shouldStop = shouldStop).run()
-        val full = Sampler(count = samples, reuseAddress = false, progressBase = 50, onProgress = onProgress, shouldStop = shouldStop).run()
-        onProgress(100)
+        val read = readRangeFromFile()?.let { it to Source.FILE }
+            ?: readRangeWithSysctl()?.let { it to Source.SYSCTL }
+
+        if (read != null) {
+            val (range, source) = read
+            val band = kernelBand(range.first, range.last)
+            val check = Sampler(reuseAddress = true, onProgress = onProgress, shouldStop = shouldStop)
+                .run(maxSamples = CHECK_SAMPLES, stopWhenStable = false)
+            // Use the computed band only if every sample fell inside it; otherwise the kernel
+            // works differently here, so trust the samples.
+            val fits = check.low >= band.first && check.high <= band.last
+            return Calibration(
+                listenLow = if (fits) band.first else check.low,
+                listenHigh = if (fits) band.last else check.high,
+                oddShare = check.odd.toDouble() / check.count,
+                fullLow = minOf(range.first, check.low),
+                fullHigh = maxOf(range.last, check.high),
+                samples = check.count,
+                source = source,
+            )
+        }
+
+        val band = Sampler(reuseAddress = true, onProgress = onProgress, shouldStop = shouldStop)
+            .run(maxSamples = MAX_SAMPLES, stopWhenStable = true)
+        val full = Sampler(reuseAddress = false, progressOffset = band.count, onProgress = onProgress, shouldStop = shouldStop)
+            .run(maxSamples = MAX_SAMPLES, stopWhenStable = true)
         return Calibration(
             listenLow = band.low,
             listenHigh = band.high,
-            oddShare = band.odd.toDouble() / samples,
+            oddShare = band.odd.toDouble() / band.count,
             fullLow = minOf(full.low, band.low),
             fullHigh = maxOf(full.high, band.high),
-            samples = samples,
+            samples = band.count + full.count,
+            source = Source.SAMPLING,
         )
     }
 
-    private class Stats(val low: Int, val high: Int, val odd: Int)
+    /**
+     * The ports a SO_REUSEADDR bind(0) can get, as inet_csk_find_open_port computes them:
+     * high++; half = low + (((high - low) >> 2) << 1); ports low..half-1.
+     */
+    fun kernelBand(low: Int, high: Int): IntRange {
+        val end = high + 1
+        val half = low + (((end - low) shr 2) shl 1)
+        return low until half
+    }
 
-    /** Binds port 0 [count] times and keeps only min, max and the odd count (no big arrays). */
+    // ---- reading ip_local_port_range ----
+
+    /** "37000\t50000" or "net.ipv4.ip_local_port_range = 37000\t50000" -> 37000..50000 */
+    fun parseRange(text: String): IntRange? {
+        val numbers = Regex("\\d+").findAll(text.substringAfter('=')).map { it.value.toInt() }.toList()
+        if (numbers.size < 2) return null
+        val (low, high) = numbers
+        return if (low in MIN_PORT..high && high <= MAX_PORT) low..high else null
+    }
+
+    /** Works on some devices; Android's app sandbox often blocks it. */
+    private fun readRangeFromFile(): IntRange? = try {
+        parseRange(File(RANGE_FILE).readText())
+    } catch (e: Exception) {
+        null
+    }
+
+    /** Runs `sysctl` through the Shizuku server (adb shell or root). Null if the server isn't running. */
+    private fun readRangeWithSysctl(): IntRange? = try {
+        runOnServer(arrayOf("sysctl", "net.ipv4.ip_local_port_range"))?.let { parseRange(it) }
+            ?: runOnServer(arrayOf("cat", RANGE_FILE))?.let { parseRange(it) }
+    } catch (e: Exception) {
+        null
+    }
+
+    /** Runs [cmd] as the Shizuku server's user and returns its output, or null if that fails. */
+    private fun runOnServer(cmd: Array<String>): String? {
+        val binder = Shizuku.getBinder() ?: return null
+        if (!binder.pingBinder()) return null
+        val process = IShizukuService.Stub.asInterface(binder).newProcess(cmd, null, null) ?: return null
+        return try {
+            process.outputStream?.close()
+            process.errorStream?.close()
+            val output = ParcelFileDescriptor.AutoCloseInputStream(process.inputStream).use {
+                it.bufferedReader().readText()
+            }
+            if (process.waitFor() == 0) output else null
+        } finally {
+            runCatching { process.destroy() }
+        }
+    }
+
+    // ---- sampling ----
+
+    private class Stats(val low: Int, val high: Int, val odd: Int, val count: Int)
+
+    /** Binds port 0 repeatedly and keeps only min, max and the odd count (no big arrays). */
     private class Sampler(
-        private val count: Int,
         private val reuseAddress: Boolean,
-        private val progressBase: Int,
+        private val progressOffset: Int = 0,
         private val onProgress: (Int) -> Unit,
         private val shouldStop: () -> Boolean,
     ) {
-        fun run(): Stats {
+        fun run(maxSamples: Int, stopWhenStable: Boolean): Stats {
             val ipv6 = ipv6Available()
             val any = InetAddress.getByAddress(ByteArray(if (ipv6) 16 else 4))
             val family = if (ipv6) OsConstants.AF_INET6 else OsConstants.AF_INET
-            val step = maxOf(1, count / 50) // one progress update per percent of the total
             var low = Int.MAX_VALUE
             var high = Int.MIN_VALUE
             var odd = 0
-            for (i in 0 until count) {
-                if (i % step == 0) {
+            var count = 0
+            var lastChange = 0
+            while (count < maxSamples) {
+                if (count % 5_000 == 0) {
                     if (shouldStop()) throw CancellationException("port range measurement cancelled")
-                    onProgress(progressBase + i / step)
+                    onProgress(progressOffset + count)
                 }
                 val fd = Os.socket(family, OsConstants.SOCK_STREAM, 0)
                 val port = try {
@@ -124,12 +227,25 @@ object AdbPortRange {
                 } finally {
                     Os.close(fd)
                 }
-                if (port < low) low = port
-                if (port > high) high = port
+                count++
+                if (port < low) { low = port; lastChange = count }
+                if (port > high) { high = port; lastChange = count }
                 if (port % 2 == 1) odd++
+                if (stopWhenStable && count - lastChange >= stableWindow(low, high, odd, count)) break
             }
-            return Stats(low, high, odd)
+            onProgress(progressOffset + count)
+            return Stats(low, high, odd, count)
         }
+    }
+
+    /**
+     * How long min and max must stay unchanged: [MIN_STABLE_SAMPLES], or [STABLE_PER_PORT] times
+     * the number of candidate ports seen so far if that is more (half as many if all were odd).
+     */
+    private fun stableWindow(low: Int, high: Int, odd: Int, count: Int): Int {
+        val span = (high - low + 1).toLong()
+        val candidates = if (odd == count || odd == 0) span / 2 else span
+        return maxOf(MIN_STABLE_SAMPLES.toLong(), candidates * STABLE_PER_PORT).coerceAtMost(MAX_SAMPLES.toLong()).toInt()
     }
 
     private fun ipv6Available(): Boolean = try {
@@ -138,6 +254,8 @@ object AdbPortRange {
     } catch (e: ErrnoException) {
         false
     }
+
+    // ---- storage ----
 
     /** How many of [ports] lie inside the adb band. */
     fun countInside(calibration: Calibration, ports: List<Int>): Int =
@@ -155,6 +273,7 @@ object AdbPortRange {
             .putInt(KEY_FULL_LOW, c.fullLow)
             .putInt(KEY_FULL_HIGH, c.fullHigh)
             .putInt(KEY_SAMPLES, c.samples)
+            .putString(KEY_SOURCE, c.source.name)
             .putBoolean(KEY_ODD_ONLY_SCAN, c.detectedOddOnly)
             .commit()
     }
@@ -170,6 +289,7 @@ object AdbPortRange {
             fullLow = p.getInt(KEY_FULL_LOW, 0),
             fullHigh = p.getInt(KEY_FULL_HIGH, 0),
             samples = p.getInt(KEY_SAMPLES, 0),
+            source = runCatching { Source.valueOf(p.getString(KEY_SOURCE, null)!!) }.getOrDefault(Source.SAMPLING),
         ).takeIf { it.listenLow in MIN_PORT..it.listenHigh && it.fullLow <= it.fullHigh }
     } catch (e: Exception) {
         null

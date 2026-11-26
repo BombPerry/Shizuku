@@ -221,10 +221,13 @@
     <string name="settings_legacy_pairing">Legacy pairing</string>
     <string name="settings_legacy_pairing_summary">Enter the pairing code in a dialog instead of a notification</string>
     <string name="settings_adb_port_range">Wireless debugging port range</string>
-    <string name="settings_adb_port_range_none">Not measured. Tap to measure which ports wireless debugging can get (1,000,000 samples, up to about a minute), so the boot start finds its port faster</string>
+    <string name="settings_adb_port_range_none">Not measured. Tap to find out which ports wireless debugging can get, so the boot start finds its port faster. With Shizuku running this takes a moment, otherwise up to about a minute</string>
     <string name="settings_adb_port_range_summary">Ports %1$d–%2$d, scanned first at boot. Tap to measure again</string>
-    <string name="settings_adb_port_range_measuring">Measuring… %1$d%%</string>
-    <string name="settings_adb_port_range_result">Wireless debugging ports: %1$d–%2$d\nOdd ports: %3$s\nWhole port range: %4$d–%5$d\nSamples: %6$s per measurement, no margin added\n\n%7$s\n\nThe boot start scans this range first.</string>
+    <string name="settings_adb_port_range_measuring">Measuring… %1$s samples</string>
+    <string name="settings_adb_port_range_result">Wireless debugging ports: %1$d–%2$d\nOdd ports: %3$s\nWhole port range: %4$d–%5$d, %6$s\nSamples: %7$s\n\n%8$s\n\nThe boot start scans this range first.</string>
+    <string name="settings_adb_port_range_source_file">read from the system</string>
+    <string name="settings_adb_port_range_source_sysctl">read with sysctl through Shizuku</string>
+    <string name="settings_adb_port_range_source_sampling">measured by sampling (start Shizuku first to read it directly)</string>
     <string name="settings_adb_port_range_history">%1$d of %2$d ports found at earlier boots lie in this range.</string>
     <string name="settings_adb_port_range_no_history">No wireless debugging port has been found at boot yet to compare with.</string>
     <string name="settings_adb_port_range_failed">Measuring failed: %1$s</string>

@@ -56,6 +56,7 @@ object BootLog {
         .replace(adbService) { "adb-<serial>-${it.groupValues[1]}" }
         .replace(ipv4) { "${it.groupValues[1]}.${it.groupValues[2]}.x.x" }
         .replace(ipv6, "<ipv6>")
+
     fun log(context: Context, msg: String, tr: Throwable? = null) {
         if (tr != null) Log.e(TAG, msg, tr) else Log.i(TAG, msg)
         try {
