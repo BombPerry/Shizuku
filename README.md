@@ -2,6 +2,9 @@
    
 # Shizuku
 
+Issues / improvements: https://github.com/kerneldroid/Nightzuku/discussions/19
+Don't have the time to update right away
+
 What this adds compared to thedjchi's 13.7.0 version:
 
 moved the app from credential encrypted storage to device encrypted storage.
